@@ -1,0 +1,92 @@
+import pandas as pd
+import pyodbc
+from tkinter import Tk, Button, Label, filedialog, messagebox
+import chardet
+
+# Función para cargar el archivo CSV y realizar inserciones en la base de datos
+def cargar_csv():
+    # Abrir el diálogo para seleccionar el archivo
+    archivo = filedialog.askopenfilename(filetypes=[("Archivos CSV", "*.csv")])
+    if archivo:
+        # Detectar la codificación del archivo
+        with open(archivo, 'rb') as f:
+            result = chardet.detect(f.read())
+            encoding = result['encoding']
+        print(f"Codificación detectada: {encoding}")
+
+        try:
+            # Leer el archivo CSV usando la codificación detectada y delimitador ';'
+            df = pd.read_csv(archivo, encoding=encoding, delimiter=';', header=None, on_bad_lines='skip', skip_blank_lines=True)
+
+            # Imprimir el contenido del archivo CSV
+            print("Contenido del archivo CSV:")
+            print(df)
+
+            # Verificar que los datos se han cargado correctamente
+            print(f"Archivo cargado correctamente con {df.shape[0]} filas y {df.shape[1]} columnas.")
+            print("Primeros 5 registros del archivo CSV:")
+            print(df.head())
+
+            # Obtener el meter_id de la fila 2, columna A
+            meter_id = df[0].iloc[1].split(' - ')[0].strip()  # Extraemos el meter_id de la columna A, fila 2
+            print(f"Meter ID extraído: {meter_id}")
+
+            # Conectar a la base de datos SQL Server
+            conn = pyodbc.connect(
+                'DRIVER={ODBC Driver 17 for SQL Server};'
+                'SERVER=10.10.10.120;'
+                'DATABASE=Client1;'
+                'UID=OPTIMUM;'
+                'PWD=OPTIMUM;'
+            )
+            cursor = conn.cursor()
+
+            # Contador para insertar solo 5 filas
+            contador = 0
+
+            # Iterar sobre las filas del DataFrame a partir de la fila 6 (índice 5) y obtener las fechas de la columna I
+            for index, fecha in enumerate(df.iloc[5:, 8]):
+                if contador >= 5:  # Si ya se han insertado 5 registros, romper el bucle
+                    break
+
+                # Mostrar la confirmación antes de insertar
+                confirmar = messagebox.askyesno("Confirmar inserción", 
+                    f"¿Deseas insertar los siguientes datos?\n\n"
+                    f"Meter ID: {meter_id}\n"
+                    f"Fecha: {fecha}\n"  # Aquí no necesitas formatear la fecha
+                )
+                
+                # Si el usuario confirma, insertar en la base de datos
+                if confirmar:
+                    cursor.execute('''INSERT INTO M_PROFILE (METER_ID, METER_T0, METER_TF, local_t0, local_tf, 
+                                      channel, reg_descr_id, qualifier, val, val_demand, val_edit, val_factor, ke)
+                                      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                                   (meter_id, fecha, fecha, fecha, fecha, 1, 1, 0, 0, 0, 0, 0, 1))
+                    print(f"Inserción realizada: {meter_id}, {fecha}")
+                    contador += 1
+                else:
+                    print(f"Fila {index + 6} no fue insertada.")
+
+            # Guardar cambios y cerrar la conexión
+            conn.commit()
+            conn.close()
+
+            label_resultado.config(text="Datos cargados e insertados correctamente.")
+        except Exception as e:
+            print(f"Error: {str(e)}")  # Imprime el error en la consola
+            label_resultado.config(text=f"Error: {str(e)}")
+
+# Crear la ventana principal
+ventana = Tk()
+ventana.title("Cargar CSV a Base de Datos")
+
+# Crear un botón para cargar el archivo
+boton_cargar = Button(ventana, text="Cargar archivo CSV", command=cargar_csv)
+boton_cargar.pack(pady=20)
+
+# Crear una etiqueta para mostrar resultados
+label_resultado = Label(ventana, text="")
+label_resultado.pack(pady=20)
+
+# Iniciar el bucle principal de la interfaz gráfica
+ventana.mainloop()
